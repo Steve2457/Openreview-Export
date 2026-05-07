@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "OpenReview Export",
+  "version": "1.0.1",
+  "description": "Export OpenReview forum reviews to Markdown from the page.",
+  "host_permissions": ["https://openreview.net/*", "https://www.openreview.net/*"],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://openreview.net/*",
+        "https://www.openreview.net/*"
+      ],
+      "js": [
+        "content/constants.js",
+        "content/helpers.js",
+        "content/math.js",
+        "content/review-parser.js",
+        "content/markdown-builder.js",
+        "content/ui.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["logo/Markdown-mark.svg"],
+      "matches": ["https://openreview.net/*", "https://www.openreview.net/*"]
+    }
+  ],
+  "action": {
+    "default_title": "Export Review — bottom-right on a paper forum page (?id=)"
+  }
+}
