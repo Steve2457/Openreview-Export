@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "OpenReview Export",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Export OpenReview forum reviews to Markdown from the page.",
   "host_permissions": ["https://openreview.net/*", "https://www.openreview.net/*"],
   "content_scripts": [

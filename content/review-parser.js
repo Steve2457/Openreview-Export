@@ -1,8 +1,148 @@
 (() => {
   const ns = window.__OR_EXPORT__;
 
+  const REPLY_NOTE_SELECTOR =
+    '#forum-replies .note[data-id], .forum-replies-container .note[data-id], main.forum .forum-replies .note[data-id]';
+
+  // Venues may customize review_name, so type matching must stay broader than Official_Review.
+  // These terms identify workflow/control notes that mention "review" but are not reports.
+  const NON_REVIEW_WORKFLOW_TERMS = new Set([
+    'acknowledgement',
+    'approval',
+    'assignment',
+    'bid',
+    'comment',
+    'confirmation',
+    'deadline',
+    'decision',
+    'deletion',
+    'discussion',
+    'edit',
+    'feedback',
+    'invitation',
+    'matching',
+    'process',
+    'rating',
+    'rebuttal',
+    'recommendation',
+    'recruitment',
+    'release',
+    'reminder',
+    'request',
+    'response',
+    'revision',
+    'stage',
+    'status',
+    'task',
+    'update',
+    'verification',
+    'withdraw',
+    'withdrawal',
+  ]);
+
+  const STRONG_REVIEW_FIELD_KEYS =
+    /^(review|main_review|detailed_review|metareview|summary|paper_summary|review_summary|summary_and_contributions|summary_of_(?:the_)?(?:paper|work|contributions)|strengths|weaknesses|strengths_and_weaknesses|weaknesses_and_questions|pros_and_cons|questions|comments_to_authors|main_comments|detailed_comments|requested_changes|limitations?|overall_assessment|assessment|justification|broader_impact_concerns|societal_impact|ethical_concerns|ethics_concerns|details_of_ethics_concerns|confidential_comments(?:_to_area_chair)?)$/i;
+
+  const REVIEW_FIELD_KEYS =
+    /^(review|main_review|detailed_review|metareview|summary|paper_summary|review_summary|summary_and_contributions|summary_of_(?:the_)?(?:paper|work|contributions)|strengths|weaknesses|strengths_and_weaknesses|weaknesses_and_questions|pros_and_cons|questions|comments_to_authors|main_comments|detailed_comments|requested_changes|limitations?|overall_assessment|assessment|justification|broader_impact_concerns|societal_impact|ethical_concerns|ethics_concerns|details_of_ethics_concerns|confidential_comments(?:_to_area_chair)?|rating|overall_rating|recommendation|overall_recommendation|confidence|reviewer_confidence|score|overall_score|soundness|correctness|technical_quality|novelty|originality|significance|relevance|clarity|quality|impact|reproducibility|presentation|contribution|claims_and_evidence|audience)$/i;
+
+  function normalizeReviewTypeText(text) {
+    return String(text || '')
+      .trim()
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+  }
+
+  function isReviewWorkflowTypeText(text) {
+    const normalized = normalizeReviewTypeText(text);
+    const reviewRelated =
+      /\breviews?\b/.test(normalized) ||
+      /\b(?:reviewer|referee) reports?\b/.test(normalized) ||
+      /\b(?:official|paper|peer) (?:assessment|evaluation)\b/.test(normalized);
+    if (!reviewRelated) return false;
+    if (/\breview submissions?\b/.test(normalized)) return true;
+    return normalized.split(' ').some((word) => NON_REVIEW_WORKFLOW_TERMS.has(word));
+  }
+
+  function isReviewReplyTypeText(text) {
+    const normalized = normalizeReviewTypeText(text);
+    if (!normalized || isReviewWorkflowTypeText(normalized)) return false;
+    if (/\breviews?\b/.test(normalized)) return true;
+    return (
+      /\b(?:reviewer|referee) reports?\b/.test(normalized) ||
+      /\b(?:official|paper|peer) (?:assessment|evaluation)\b/.test(normalized)
+    );
+  }
+
+  function getInvitationTypeFromId(value) {
+    let decoded = String(value || '');
+    try {
+      decoded = decodeURIComponent(decoded);
+    } catch (_) {}
+    const match = decoded.match(/\/-\/([^/?#&]+)/);
+    return match?.[1] || '';
+  }
+
+  function isReviewInvitationId(value) {
+    return isReviewReplyTypeText(getInvitationTypeFromId(value));
+  }
+
+  function getOwnNoteContent(noteEl) {
+    return noteEl.querySelector(
+      ':scope > .note-content-container > .note-content, :scope > .note-content, :scope > .content > .note-content',
+    );
+  }
+
+  function getSignatureText(noteEl) {
+    return (
+      noteEl.querySelector('.subheading .signatures, .heading .signatures')?.innerText || ''
+    );
+  }
+
+  function hasReviewerSignature(noteEl) {
+    const normalized = getSignatureText(noteEl).replace(/[_/-]+/g, ' ');
+    return /\b(?:anonymous )?(?:reviewers?|referees?|area chairs?|action editors?|ethics reviewers?|meta reviewers?|program committee members?|pc members?|committee members?)\b/i.test(
+      normalized,
+    );
+  }
+
+  function getFieldRows(noteEl) {
+    const root = getOwnNoteContent(noteEl);
+    if (!root) return [];
+    return Array.from(root.querySelectorAll(':scope > div, :scope > li'))
+      .map((row) => {
+        const labelEl = row.querySelector('.note-content-field');
+        const label = labelEl?.textContent?.replace(/:\s*$/, '').trim() || '';
+        return { row, labelEl, label, key: ns.labelToKey(label) };
+      })
+      .filter(({ label }) => label && !label.startsWith('_'));
+  }
+
+  function hasReviewFields(noteEl) {
+    const keys = getFieldRows(noteEl)
+      .map(({ key }) => key)
+      .filter((key) => key && !ns.OMIT_FIELD_KEYS.has(key));
+    if (keys.some((key) => STRONG_REVIEW_FIELD_KEYS.test(key))) return true;
+    return new Set(keys.filter((key) => REVIEW_FIELD_KEYS.test(key))).size >= 2;
+  }
+
+  function expandReviewNotes() {
+    let expanded = 0;
+    document.querySelectorAll(REPLY_NOTE_SELECTOR).forEach((noteEl) => {
+      if (getOwnNoteContent(noteEl)) return;
+      if (!isReviewNoteElement(noteEl) && !hasReviewerSignature(noteEl)) return;
+      const expandButton = noteEl.querySelector(
+        ':scope > .collapse-controls-v button:last-child',
+      );
+      if (!expandButton) return;
+      expandButton.click();
+      expanded += 1;
+    });
+    return expanded;
+  }
+
   async function ensureForumRepliesRendered() {
-    const noteSel = '#forum-replies .note[data-id], .forum-replies-container .note[data-id]';
     const holderSels = [
       '#forum-replies .rc-virtual-list-holder',
       '.forum-replies-container .rc-virtual-list-holder',
@@ -15,40 +155,56 @@
         if (holder) holder.scrollTop = holder.scrollHeight;
       }
       await ns.sleep(220);
-      const n = document.querySelectorAll(noteSel).length;
+      const n = document.querySelectorAll(REPLY_NOTE_SELECTOR).length;
       if (n === prev && pass > 4) break;
       prev = n;
     }
+
+    if (expandReviewNotes()) await ns.sleep(250);
   }
 
   function isReviewNoteElement(noteEl) {
+    const replyType =
+      noteEl.querySelector('.subheading .invitation[title="Reply type"]')?.innerText ||
+      noteEl.querySelector('.subheading .invitation')?.innerText ||
+      '';
+    if (isReviewReplyTypeText(replyType)) return true;
+    if (isReviewWorkflowTypeText(replyType)) return false;
+
     const headingText =
       noteEl.querySelector('.heading h4, .heading .minimal-title')?.innerText || '';
-    if (/official review|official meta review|meta review/i.test(headingText)) return true;
-    if (noteEl.querySelector('a[href*="Official_Review"]')) return true;
-    const sig = noteEl.querySelector('.heading .signatures')?.innerText || '';
-    if (/Reviewer|AnonReviewer|Area_Chair/i.test(sig)) {
-      const blob = noteEl.innerText.slice(0, 4000);
-      if (/\b(Rating|Confidence|Soundness|Recommendation|Presentation|Contribution)\b/i.test(blob)) {
-        return true;
-      }
+    const collapsedTitle = headingText.split(/[•·]/, 1)[0];
+    if (!replyType && isReviewReplyTypeText(collapsedTitle) && hasReviewerSignature(noteEl)) {
+      return true;
     }
-    return false;
+    const invitationLinks = Array.from(
+      noteEl.querySelectorAll?.(
+        'a[href*="Review"], a[href*="review"], a[data-id*="Review"], a[data-id*="review"]',
+      ) || [],
+    );
+    if (
+      invitationLinks.some((link) =>
+        isReviewInvitationId(
+          link.getAttribute('href') || link.getAttribute('data-id') || '',
+        ),
+      )
+    ) {
+      return true;
+    }
+
+    return hasReviewerSignature(noteEl) && hasReviewFields(noteEl);
   }
 
   function extractFieldsFromNoteContent(noteEl) {
-    const root = noteEl.querySelector('.note-content');
-    if (!root) return [];
     const out = [];
-    root.querySelectorAll(':scope > div').forEach((div) => {
-      const labelEl = div.querySelector('strong.note-content-field');
-      if (!labelEl) return;
-      const label = labelEl.textContent.replace(/:\s*$/, '').trim();
-      if (!label || label.startsWith('_')) return;
-      const lk = ns.labelToKey(label);
-      if (ns.OMIT_FIELD_KEYS.has(lk)) return;
-      const valEl = div.querySelector('.note-content-value');
-      const text = valEl ? ns.extractTextWithMath(valEl) : '';
+    getFieldRows(noteEl).forEach(({ row, label, key }) => {
+      if (ns.OMIT_FIELD_KEYS.has(key)) return;
+      const valEl = row.querySelector('.note-content-value');
+      let text = valEl ? ns.extractTextWithMath(valEl) : ns.extractTextWithMath(row);
+      if (!valEl && text) {
+        const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        text = text.replace(new RegExp(`^${escapedLabel}\\s*:?\\s*`, 'i'), '').trim();
+      }
       out.push({ label, text });
     });
     return out;
@@ -87,9 +243,10 @@
 
   function extractOfficialReviewsFromDom() {
     const paperTitle = ns.getPaperTitleFromDom();
-    const selector = '#forum-replies .note[data-id], .forum-replies-container .note[data-id]';
-    let nodes = document.querySelectorAll(selector);
-    if (!nodes.length) nodes = document.querySelectorAll('main.forum .forum-replies-container .note[data-id]');
+    let nodes = document.querySelectorAll(REPLY_NOTE_SELECTOR);
+    if (!nodes.length) {
+      nodes = document.querySelectorAll('main.forum .forum-replies-container .note[data-id]');
+    }
     if (!nodes.length) nodes = document.querySelectorAll('main.forum .note[data-id]');
 
     const reviews = [];
@@ -101,8 +258,7 @@
         noteEl.querySelector('.heading h4, .heading .minimal-title')?.innerText
           ?.trim()
           .replace(/\s+/g, ' ') || '';
-      const signatureText =
-        noteEl.querySelector('.heading .signatures')?.innerText?.trim().replace(/\s+/g, ' ') || '';
+      const signatureText = getSignatureText(noteEl).trim().replace(/\s+/g, ' ');
       reviews.push({
         noteId: noteEl.getAttribute('data-id') || '',
         headingText,
@@ -115,12 +271,26 @@
 
   function scrapeDomFallback() {
     const title = ns.getPaperTitleFromDom();
+    const reviewNotes = Array.from(document.querySelectorAll(REPLY_NOTE_SELECTOR)).filter(
+      isReviewNoteElement,
+    );
     const headings = Array.from(document.querySelectorAll('main h2, main h3, main h4, main h5'));
-    const reviewHeadings = headings.filter((h) => /official review/i.test(h.textContent || ''));
+    const reviewHeadings = headings.filter((h) => isReviewReplyTypeText(h.textContent || ''));
     const chunks = [];
 
-    for (const h of reviewHeadings) {
-      const parts = [h.textContent?.trim() || 'Official Review'];
+    reviewNotes.forEach((noteEl) => {
+      const root = getOwnNoteContent(noteEl);
+      if (!root) return;
+      const heading =
+        noteEl.querySelector('.heading h4, .heading .minimal-title')?.innerText?.trim() ||
+        'Review';
+      const signature = getSignatureText(noteEl).trim();
+      const body = ns.extractTextWithMath(root);
+      if (body) chunks.push([heading, signature, body].filter(Boolean).join('\n\n'));
+    });
+
+    for (const h of chunks.length ? [] : reviewHeadings) {
+      const parts = [h.textContent?.trim() || 'Review'];
       let el = h.nextElementSibling;
       let depth = 0;
       const tag = h.tagName;
@@ -140,7 +310,7 @@
     let md = `# ${title}\n\n`;
     md += `> Scraped from · ${window.location.href}\n\n`;
     if (!chunks.length) {
-      md += `_Could not find an “Official Review” block. Log in, expand reviews, scroll to load all replies, then try again._\n`;
+      md += `_Could not find a peer-review block. Log in, show all replies, then try again._\n`;
       return md;
     }
     md += `_Visible page text below; may be incomplete._\n\n---\n\n`;
@@ -165,6 +335,11 @@
   }
 
   ns.ensureForumRepliesRendered = ensureForumRepliesRendered;
+  ns.isReviewReplyTypeText = isReviewReplyTypeText;
+  ns.isReviewWorkflowTypeText = isReviewWorkflowTypeText;
+  ns.isReviewInvitationId = isReviewInvitationId;
+  ns.isReviewNoteElement = isReviewNoteElement;
+  ns.extractFieldsFromNoteContent = extractFieldsFromNoteContent;
   ns.partitionDomFields = partitionDomFields;
   ns.extractOfficialReviewsFromDom = extractOfficialReviewsFromDom;
   ns.scrapeDomFallback = scrapeDomFallback;

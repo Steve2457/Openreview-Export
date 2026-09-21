@@ -3,7 +3,7 @@
 
   function buildMarkdownFromDomData({ paperTitle, forumUrl, reviews }) {
     let md = `# ${paperTitle}\n\n`;
-    md += `> **${reviews.length}** official review(s) parsed from this **OpenReview** page (matches what you see while logged in) · [this page](${forumUrl})\n\n`;
+    md += `> **${reviews.length}** review report(s) parsed from this **OpenReview** page (matches what you see while logged in) · [this page](${forumUrl})\n\n`;
     md += `---\n\n`;
 
     reviews.forEach((rev, index) => {
